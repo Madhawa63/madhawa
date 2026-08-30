@@ -9,6 +9,6 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.0",
     "pino": "^8.19.0",
-    "yt-dlp-exec": "^2.4.8"
+    "yt-dlp-exec": "latest"
   }
 }
