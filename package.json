@@ -1,19 +1,14 @@
 {
-  "name": "my-wa-bot",
+  "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "WhatsApp Bot with Pairing Code",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "@whiskeysockets/baileys": "^7.0.0-rc14",
-    "qrcode-terminal": "^0.12.0",
-    "yt-dlp-wrap": "^2.3.12"
+    "@whiskeysockets/baileys": "^6.7.0",
+    "pino": "^8.19.0",
+    "yt-dlp-exec": "^2.4.8"
   }
 }
