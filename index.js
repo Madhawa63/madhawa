@@ -1,10 +1,17 @@
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
+const { default: makeWASocket, useMultiFileAuthState, delay } = require('@whiskeysockets/baileys');
+const readline = require('readline');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
 
 const userSessions = {};
+
+// Terminal එකෙන් නම්බර් එක ලබා ගැනීමට
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -15,14 +22,24 @@ async function startBot() {
         logger: pino({ level: 'silent' })
     });
 
+    // Pair Code එක සඳහා පහසුකම
+    if (!sock.authState.creds.registered) {
+        console.log('\n📱 WhatsApp Pair Code එක ලබා ගැනීමට ඔබේ දුරකථන අංකය ඇතුළත් කරන්න (උදා: 94771234567):');
+        const phoneNumber = await question('');
+        await delay(3000);
+        try {
+            let code = await sock.requestPairingCode(phoneNumber.trim());
+            console.log(`\n✨ ඔබගේ WhatsApp Pairing Code එක මෙන්න: \x1b[32m${code}\x1b[0m\n`);
+            console.log('👉 WhatsApp -> Linked Devices -> Link with phone number වෙත ගොස් මෙම කෝඩ් එක ඇතුළත් කරන්න!\n');
+        } catch (error) {
+            console.error('❌ Pairing Code එක ලබාගැනීමේදී දෝෂයක් සිදු විය:', error);
+        }
+    }
+
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
-        if (qr) {
-            console.log('\n👇 කරුණාකර පහත QR කෝඩ් එක ස්කෑන් කරන්න:\n');
-            qrcode.generate(qr, { small: true }); 
-        }
+        const { connection } = update;
         if (connection === 'open') {
             console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය! (Owner: Chalana Madhawa)\n');
         } else if (connection === 'close') {
@@ -247,7 +264,7 @@ async function startBot() {
             return;
         }
 
-        // 6. .insta Command (New Added)
+        // 6. .insta Command
         if (textMessage.startsWith('.insta ')) {
             const url = textMessage.split(' ')[1];
             if (!url) return;
