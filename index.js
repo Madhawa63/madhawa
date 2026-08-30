@@ -1,5 +1,4 @@
 const { default: makeWASocket, useMultiFileAuthState, delay } = require('@whiskeysockets/baileys');
-const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
 const ytdlp = require('yt-dlp-exec');
@@ -19,7 +18,7 @@ async function startBot() {
     // Pair Code එක ස්වයංක්‍රීයව ලබා ගැනීම
     if (!sock.authState.creds.registered) {
         console.log('\n📱 WhatsApp Pair Code එක ලබා ගැනීමට උත්සාහ කරමින් පවතී...');
-        await delay(4000);
+        await delay(5000);
         try {
             let code = await sock.requestPairingCode(TARGET_PHONE_NUMBER);
             console.log(`\n✨ ඔබගේ WhatsApp Pairing Code එක මෙන්න: \x1b[32m${code}\x1b[0m\n`);
@@ -191,7 +190,6 @@ async function startBot() {
                     flatPlaylist: true
                 });
                 
-                // Parse results safely
                 const lines = output.trim().split('\n');
                 const results = [];
                 let responseText = `🎵 *${pushName}, "${query}" සඳහා සොයාගත් සින්දු:* \n\n`;
@@ -226,7 +224,7 @@ async function startBot() {
             return;
         }
 
-        // 5. .tik, .insta, .fb, .yt Commands handling
+        // 5. .tik, .insta, .fb Commands
         if (textMessage.startsWith('.tik ') || textMessage.startsWith('.insta ') || textMessage.startsWith('.fb ')) {
             const url = textMessage.split(' ')[1];
             if (!url) return;
@@ -245,6 +243,7 @@ async function startBot() {
             return;
         }
 
+        // 6. .yt Command
         if (textMessage.startsWith('.yt ')) {
             const query = textMessage.replace('.yt ', '').trim();
             if (!query) return;
@@ -257,8 +256,45 @@ async function startBot() {
 
             await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, YouTube එකේ සොයමින් පවතී... ⏳` }, { quoted: msg });
-            
-            // Simple search and direct play/download logic can be added similarly if needed
+
+            try {
+                const output = await ytdlp(`ytsearch10:${query}`, {
+                    dumpJson: true,
+                    flatPlaylist: true
+                });
+                
+                const lines = output.trim().split('\n');
+                const results = [];
+                let responseText = `🔎 *${pushName}, "${query}" සඳහා සොයාගත් වීඩියෝ:* \n\n`;
+
+                lines.forEach((line, index) => {
+                    try {
+                        const item = JSON.parse(line);
+                        if (item.title && item.id) {
+                            results.push({ title: item.title, url: `https://www.youtube.com/watch?v=${item.id}` });
+                            responseText += `*${index + 1}.* ${item.title}\n\n`;
+                        }
+                    } catch (e) {}
+                });
+
+                if (results.length === 0) {
+                    await sock.sendMessage(senderNumber, { text: `වීඩියෝ හම්බුුණේ නැහැ ${pushName} 🥲` }, { quoted: msg });
+                    return;
+                }
+
+                responseText += `------------------------------------\n👉 *ඔයාට ඕන වීඩියෝ එකේ අංකය Reply කරන්න:*`;
+
+                userSessions[senderNumber] = {
+                    step: 'SELECT_SEARCH_RESULT',
+                    results: results,
+                    type: 'yt'
+                };
+
+                await sock.sendMessage(senderNumber, { text: responseText }, { quoted: msg });
+            } catch (err) {
+                await sock.sendMessage(senderNumber, { text: `වීඩියෝ සෙවීමේදී දෝෂයක් සිදු විය 🥲` }, { quoted: msg });
+            }
+            return;
         }
     });
 }
