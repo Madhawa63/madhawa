@@ -1,5 +1,4 @@
 const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
@@ -17,12 +16,23 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Pairing Code එක ලබා ගැනීම
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක රටේ කෝඩ් එකත් එක්ක (0 අයින් කරලා) දැම්මා
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(phoneNumber);
+                console.log(`\n========================================`);
+                console.log(`🔑 ඔන්න ඔයාගේ WhatsApp Pairing Code එක: ${code}`);
+                console.log(`========================================\n`);
+            } catch (err) {
+                console.log("❌ Pairing Code එක ලබාගැනීමේදී දෝෂයක් ඇති විය:", err);
+            }
+        }, 4000);
+    }
+
     sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
-        if (qr) {
-            console.log('\n👇 කරුණාකර පහත QR කෝඩ් එක ස්කෑන් කරන්න:\n');
-            qrcode.generate(qr, { small: true }); 
-        }
+        const { connection } = update;
         if (connection === 'open') {
             console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය! (Owner: Chalana Madhawa)\n');
         } else if (connection === 'close') {
@@ -99,7 +109,7 @@ async function startBot() {
                         await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
 
                         const fileName = `song_${Date.now()}.mp3`;
-                        const command = `.\\yt-dlp.exe -x --audio-format mp3 -o "${fileName}" "${selectedItem.url}"`;
+                        const command = `npx yt-dlp -x --audio-format mp3 -o "${fileName}" "${selectedItem.url}"`;
 
                         exec(command, async (error) => {
                             if (error) {
@@ -163,7 +173,7 @@ async function startBot() {
                 const ext = isAudio ? 'mp3' : 'mp4';
                 const fileName = `download_${Date.now()}.${ext}`;
                 const cmdOptions = isAudio ? `-x --audio-format mp3 -o "${fileName}"` : `-f "${formatCmd}" -o "${fileName}"`;
-                const command = `.\\yt-dlp.exe ${cmdOptions} "${targetUrl}"`;
+                const command = `npx yt-dlp ${cmdOptions} "${targetUrl}"`;
 
                 exec(command, async (error) => {
                     if (error) {
@@ -194,7 +204,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { react: { text: '🎵', key: msg.key } });
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව සොයමින් පවතී... ⏳` }, { quoted: msg });
 
-            const searchCmd = `.\\yt-dlp.exe "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
+            const searchCmd = `npx yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
 
             exec(searchCmd, async (error, stdout) => {
                 if (error || !stdout.trim()) {
@@ -236,7 +246,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, TikTok වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
             const fileName = `tiktok_${Date.now()}.mp4`;
             
-            exec(`.\\yt-dlp.exe -f "best" -o "${fileName}" "${url}"`, async (error) => {
+            exec(`npx yt-dlp -f "best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
                     await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. TikTok වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
@@ -247,7 +257,7 @@ async function startBot() {
             return;
         }
 
-        // 6. .insta Command (New Added)
+        // 6. .insta Command
         if (textMessage.startsWith('.insta ')) {
             const url = textMessage.split(' ')[1];
             if (!url) return;
@@ -256,7 +266,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, Instagram වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
             const fileName = `insta_${Date.now()}.mp4`;
             
-            exec(`.\\yt-dlp.exe -f "best" -o "${fileName}" "${url}"`, async (error) => {
+            exec(`npx yt-dlp -f "best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
                     await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. Instagram වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
@@ -293,7 +303,7 @@ async function startBot() {
 
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, YouTube එකේ සොයමින් පවතී... ⏳` }, { quoted: msg });
 
-            const searchCmd = `.\\yt-dlp.exe "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
+            const searchCmd = `npx yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
 
             exec(searchCmd, async (error, stdout) => {
                 if (error || !stdout.trim()) {
