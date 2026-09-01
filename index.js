@@ -1,5 +1,5 @@
 const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const axios = require('axios');
 const fs = require('fs');
 const pino = require('pino');
@@ -19,42 +19,49 @@ const userSessions = {};
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: false, // QR අයින් කර Pairing Code එක පාවිච්චි කිරීමට
-        logger: pino({ level: 'silent' })
+        version,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
+        },
+        printQRInTerminal: false,
+        logger: pino({ level: 'fatal' })
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Pairing Code එක ලබා ගැනීම
+    // Pairing Code එක උත්සාහ කිරීම (Registered නැත්නම් පමණයි)
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක
         setTimeout(async () => {
             try {
+                const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක
                 let code = await sock.requestPairingCode(phoneNumber);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n========================================`);
                 console.log(`🔑 ඔන්න ඔයාගේ WhatsApp Pairing Code එක: ${code}`);
                 console.log(`========================================\n`);
             } catch (err) {
-                console.log("❌ Pairing Code එක ලබාගැනීමේදී දෝෂයක් ඇති විය:", err);
+                console.log("❌ Pairing Code ඉල්ලීමේදී දෝෂයක් ඇති විය:", err);
             }
-        }, 5000);
+        }, 6000);
     }
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
         if (connection === 'open') {
-            console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය! (Owner: Chalana Madhawa)\n');
+            console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය!\n');
         } else if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log('\n❌ කනෙක්ෂන් එක විසන්ධි වුණා. නැවත කනෙක්ට් වෙමින් පවතී...\n');
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`\n❌ කනෙක්ෂන් එක විසන්ධි වුණා (Status: ${statusCode}). නැවත කනෙක්ට් වෙමින් පවතී...\n`);
             if (shouldReconnect) {
                 startBot();
             } else {
-                console.log('⚠️ ලොග්আউট වී ඇත. කරුණාකර auth_info_baileys ෆෝල්ඩර් එක මකා නැවත ලොග් වන්න.');
+                console.log('⚠️ ලොග්আউট වී ඇත. auth_info_baileys ෆෝල්ඩර් එක මකා නැවත ලොග් වන්න.');
             }
         }
     });
@@ -70,20 +77,20 @@ async function startBot() {
         if (textMessage === '.check') {
             await sock.sendMessage(senderNumber, { react: { text: '🟢', key: msg.key } });
             await sock.sendMessage(senderNumber, { 
-                text: `🤖 *Bot Status:* ආයුබෝවන් ${pushName}, මගේ බොට් නම් පට්ට විදිහට වැඩ කරනවා! 🟢\n\n- Chalana Madhawa -` 
+                text: `🤖 *Bot Status:* ආයුබෝවන් ${pushName}, බොට් පට්ට විදිහට වැඩ කරනවා! 🟢` 
             }, { quoted: msg });
             return;
         }
 
         if (textMessage === '.menu') {
             await sock.sendMessage(senderNumber, { react: { text: '📋', key: msg.key } });
-            const menuText = `👋 *ආයුබෝවන් ${pushName}! Chalana Madhawa ගේ Bot Menu එකට සාදරයෙන් පිළිගන්නවා!* 🎬🎵\n\n` +
-                             `🔹 *.fb [Facebook Link]* - FB Video Download\n` +
-                             `🔹 *.tik [TikTok Link]* - TikTok Video Download\n` +
-                             `🔹 *.insta [Instagram Link]* - Insta Video Download\n` +
-                             `🔹 *.yt [YouTube Link]* - YouTube Video Download\n` +
-                             `🔹 *.song [සින්දුවේ නම]* - Song MP3 Download\n\n` +
-                             `------------------------------------\n*Created by Chalana Madhawa*`;
+            const menuText = `👋 *ආයුබෝවන් ${pushName}! Bot Menu එකට සාදරයෙන් පිළිගන්නවා!* 🎬🎵\n\n` +
+                             `🔹 *.fb [Link]* - FB Video Download\n` +
+                             `🔹 *.tik [Link]* - TikTok Video Download\n` +
+                             `🔹 *.insta [Link]* - Insta Video Download\n` +
+                             `🔹 *.yt [Link]* - YouTube Video Download\n` +
+                             `🔹 *.song [නම]* - Song MP3 Download\n\n` +
+                             `------------------------------------`;
             await sock.sendMessage(senderNumber, { text: menuText }, { quoted: msg });
             return;
         }
@@ -102,7 +109,7 @@ async function startBot() {
                     }
                     return;
                 } else {
-                    await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, නිවැරදි අංකයක් දෙන්න! ❌` }, { quoted: msg });
+                    await sock.sendMessage(senderNumber, { text: `කරුණාකර නිවැරදි අංකයක් දෙන්න! ❌` }, { quoted: msg });
                     return;
                 }
             }
@@ -112,7 +119,7 @@ async function startBot() {
             const query = textMessage.replace('.song ', '').trim();
             if (!query) return;
             await sock.sendMessage(senderNumber, { react: { text: '🎵', key: msg.key } });
-            await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව සොයමින් පවතී... ⏳` }, { quoted: msg });
+            await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න, සින්දුව සොයමින් පවතී... ⏳` }, { quoted: msg });
             try {
                 const searchRes = await axios.get(`https://apis.davidcyriltech.my.id/youtube/search?query=${encodeURIComponent(query)}`);
                 const results = searchRes.data.results || searchRes.data.data || [];
@@ -120,7 +127,7 @@ async function startBot() {
                     await sock.sendMessage(senderNumber, { text: `සින්දු හම්බුුණේ නැහැ බ්‍රෝ 🥲` }, { quoted: msg });
                     return;
                 }
-                let responseText = `🎵 *${pushName}, "${query}" සඳහා සොයාගත් සින්දු:* \n\n`;
+                let responseText = `🎵 *"${query}" සඳහා සොයාගත් සින්දු:* \n\n`;
                 const topResults = results.slice(0, 10);
                 topResults.forEach((item, index) => {
                     responseText += `*${index + 1}.* ${item.title}\n\n`;
@@ -163,7 +170,7 @@ async function startBot() {
                 return;
             }
             await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
-            await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, YouTube එකේ සොයමින් පවතී... ⏳` }, { quoted: msg });
+            await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න, YouTube එකේ සොයමින් පවතී... ⏳` }, { quoted: msg });
             try {
                 const searchRes = await axios.get(`https://apis.davidcyriltech.my.id/youtube/search?query=${encodeURIComponent(query)}`);
                 const results = searchRes.data.results || searchRes.data.data || [];
@@ -171,7 +178,7 @@ async function startBot() {
                     await sock.sendMessage(senderNumber, { text: `වීඩියෝ හම්බුුණේ නැහැ බ්‍රෝ 🥲` }, { quoted: msg });
                     return;
                 }
-                let responseText = `🔎 *${pushName}, "${query}" සඳහා සොයාගත් වීඩියෝ:* \n\n`;
+                let responseText = `🔎 *"${query}" සඳහා සොයාගත් වීඩියෝ:* \n\n`;
                 const topResults = results.slice(0, 10);
                 topResults.forEach((item, index) => {
                     responseText += `*${index + 1}.* ${item.title}\n\n`;
@@ -189,24 +196,24 @@ async function startBot() {
 
 async function downloadAndSendMedia(sock, senderNumber, msg, targetUrl, type, pushName, title) {
     await sock.sendMessage(senderNumber, { react: { text: '⏳', key: msg.key } });
-    await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, ගොනුව සකස් වෙමින් පවතී... ⏳` }, { quoted: msg });
+    await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න, ගොනුව සකස් වෙමින් පවතී... ⏳` }, { quoted: msg });
     try {
         let downloadApiUrl = `https://apis.davidcyriltech.my.id/download?url=${encodeURIComponent(targetUrl)}`;
         const response = await axios.get(downloadApiUrl);
         const data = response.data;
         let mediaUrl = data.download_url || data.url || data.video || (data.result && data.result.url);
         if (!mediaUrl) {
-            await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. ඩවුන්ලෝඩ් ලින්ක් එක ලබාගන්න බැරි වුණා 🥲` }, { quoted: msg });
+            await sock.sendMessage(senderNumber, { text: `ඩවුන්ලෝඩ් ලින්ක් එක ලබාගන්න බැරි වුණා 🥲` }, { quoted: msg });
             return;
         }
         if (type === 'audio') {
-            await sock.sendMessage(senderNumber, { audio: { url: mediaUrl }, mimetype: 'audio/mp4', caption: `🎵 *${title || 'Audio'}*\n- Chalana Madhawa -` }, { quoted: msg });
+            await sock.sendMessage(senderNumber, { audio: { url: mediaUrl }, mimetype: 'audio/mp4', caption: `🎵 *${title || 'Audio'}*` }, { quoted: msg });
         } else {
-            await sock.sendMessage(senderNumber, { video: { url: mediaUrl }, caption: `🎬 *${title || 'Video'}*\n- Chalana Madhawa -` }, { quoted: msg });
+            await sock.sendMessage(senderNumber, { video: { url: mediaUrl }, caption: `🎬 *${title || 'Video'}*` }, { quoted: msg });
         }
     } catch (err) {
         console.log("Download Error:", err);
-        await sock.sendMessage(senderNumber, { text: `සමාවෙන්න ${pushName}, ෆයිල් එක ඩවුන්ලෝඩ් කරද්දී දෝෂයක් මතු වුණා 🥲` }, { quoted: msg });
+        await sock.sendMessage(senderNumber, { text: `සමාවෙන්න, ෆයිල් එක ඩවුන්ලෝඩ් කරද්දී දෝෂයක් මතු වුණා 🥲` }, { quoted: msg });
     }
 }
 
