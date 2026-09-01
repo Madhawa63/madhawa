@@ -1,5 +1,5 @@
 const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const axios = require('axios');
 const fs = require('fs');
 const pino = require('pino');
@@ -28,8 +28,9 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Pairing Code ඉල්ලීම (සෙෂන් එක රෙজিস্টර් වී නැත්නම් පමණි)
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94774174158"; 
+        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -39,16 +40,21 @@ async function startBot() {
             } catch (err) {
                 console.log("❌ Pairing Code එක ලබාගැනීමේදී දෝෂයක් ඇති විය:", err);
             }
-        }, 4000);
+        }, 5000);
     }
 
     sock.ev.on('connection.update', (update) => {
-        const { connection } = update;
+        const { connection, lastDisconnect } = update;
         if (connection === 'open') {
             console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය! (Owner: Chalana Madhawa)\n');
         } else if (connection === 'close') {
-            console.log('\n❌ කනෙක්ෂන් එක විසන්ධි වුණා. නැවත කනෙක්ට් වෙමින් පවතී...\n');
-            startBot(); 
+            const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
+            console.log('\n❌ කනෙක්ෂන් එක විසන්ධි වුණා. හේතුව:', lastDisconnect?.error, '\n');
+            if (shouldReconnect) {
+                startBot();
+            } else {
+                console.log('⚠️ ලොග්আউট වී ඇත. කරුණාකර auth_info_baileys ෆෝල්ඩර් එක මකා නැවත ලොග් වන්න.');
+            }
         }
     });
     
@@ -90,7 +96,7 @@ async function startBot() {
             return;
         }
 
-        // 3. Search Results Selection (.song / .yt Search)
+        // 3. Search Results Selection
         if (userSessions[senderNumber]) {
             const session = userSessions[senderNumber];
 
@@ -222,7 +228,6 @@ async function startBot() {
     });
 }
 
-// 🌐 API හරහා ඩවුන්ලෝඩ් කර WhatsApp වෙත එවීම සඳහා වන ප්‍රධාන ෆੰක්ෂන් එක
 async function downloadAndSendMedia(sock, senderNumber, msg, targetUrl, type, pushName, title) {
     await sock.sendMessage(senderNumber, { react: { text: '⏳', key: msg.key } });
     await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, ගොනුව සකස් වෙමින් පවතී... ⏳` }, { quoted: msg });
