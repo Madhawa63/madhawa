@@ -8,6 +8,35 @@ const userSessions = {};
 
 // MongoDB හරහා Baileys Auth State එක පාලනය කිරීම සඳහා Custom Helper එක
 function useMongoDBAuthState(collection) {
+    const state = {
+        creds: null,
+        keys: {
+            get: async (type, ids) => {
+                const data = {};
+                await Promise.all(
+                    ids.map(async (id) => {
+                        let value = await readData(`${type}-${id}`);
+                        if (type === 'app-state-sync-key' && value) {
+                            value = Buffer.from(value);
+                        }
+                        data[id] = value;
+                    })
+                );
+                return data;
+            },
+            set: async (data) => {
+                const tasks = [];
+                for (const category of Object.keys(data)) {
+                    for (const id of Object.keys(data[category])) {
+                        const value = data[category][id];
+                        tasks.push(writeData(value, `${category}-${id}`));
+                    }
+                }
+                await Promise.all(tasks);
+            }
+        }
+    };
+
     const writeData = async (data, id) => {
         const query = { _id: id };
         await collection.replaceOne(query, { _id: id, data }, { upsert: true });
@@ -29,34 +58,7 @@ function useMongoDBAuthState(collection) {
     };
 
     return {
-        state: {
-            creds: null,
-            keys: {
-                get: async (type, ids) => {
-                    const data = {};
-                    await Promise.all(
-                        ids.map(async (id) => {
-                            let value = await readData(`${type}-${id}`);
-                            if (type === 'app-state-sync-key' && value) {
-                                value = Buffer.from(value);
-                            }
-                            data[id] = value;
-                        })
-                    );
-                    return data;
-                },
-                set: async (data) => {
-                    const tasks = [];
-                    for (const category of Object.keys(data)) {
-                        for (const id of Object.keys(data[category])) {
-                            const value = data[category][id];
-                            tasks.push(writeData(value, `${category}-${id}`));
-                        }
-                    }
-                    await Promise.all(tasks);
-                }
-            }
-        },
+        state,
         saveCreds: async () => {
             return await writeData(state.creds, 'creds');
         },
