@@ -123,7 +123,7 @@ async function startBot() {
                         await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
 
                         const fileName = `song_${Date.now()}.mp3`;
-                        const command = `npx yt-dlp -f "bestaudio" -o "${fileName}" "${selectedItem.url}"`;
+                        const command = `npx --yes yt-dlp -x --audio-format mp3 -o "${fileName}" "${selectedItem.url}"`;
 
                         exec(command, async (error) => {
                             if (error) {
@@ -186,7 +186,9 @@ async function startBot() {
 
                 const ext = isAudio ? 'mp3' : 'mp4';
                 const fileName = `download_${Date.now()}.${ext}`;
-                const command = `npx yt-dlp -f "${formatCmd}" -o "${fileName}" "${targetUrl}"`;
+                const command = isAudio 
+                    ? `npx --yes yt-dlp -x --audio-format mp3 -o "${fileName}" "${targetUrl}"`
+                    : `npx --yes yt-dlp -f "${formatCmd}" -o "${fileName}" "${targetUrl}"`;
 
                 exec(command, async (error) => {
                     if (error) {
@@ -217,7 +219,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { react: { text: '🎵', key: msg.key } });
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව සොයමින් පවතී... ⏳` }, { quoted: msg });
 
-            const searchCmd = `npx yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
+            const searchCmd = `npx --yes yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
 
             exec(searchCmd, async (error, stdout) => {
                 if (error || !stdout.trim()) {
@@ -259,7 +261,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, TikTok වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
             const fileName = `tiktok_${Date.now()}.mp4`;
             
-            exec(`npx yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
+            exec(`npx --yes yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
                     await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. TikTok වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
@@ -279,7 +281,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, Instagram වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
             const fileName = `insta_${Date.now()}.mp4`;
             
-            exec(`npx yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
+            exec(`npx --yes yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
                     await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. Instagram වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
@@ -316,7 +318,7 @@ async function startBot() {
 
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, YouTube එකේ සොයමින් පවතී... ⏳` }, { quoted: msg });
 
-            const searchCmd = `npx yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
+            const searchCmd = `npx --yes yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
 
             exec(searchCmd, async (error, stdout) => {
                 if (error || !stdout.trim()) {
