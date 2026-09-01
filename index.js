@@ -1,10 +1,9 @@
 const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const { exec } = require('child_process');
+const axios = require('axios');
 const fs = require('fs');
 const pino = require('pino');
 
-// 1. Render එකේ Port Error එක නැති කර ගැනීමට Express සර්වර් එක සකස් කිරීම
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -19,7 +18,6 @@ app.listen(PORT, () => {
 const userSessions = {};
 
 async function startBot() {
-    // 2. MultiFileAuthState හරහා ලෝකල් ෆෝල්ඩර් එකක (auth_info_baileys) සෙෂන් සේව් වීම
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
@@ -30,9 +28,8 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Pairing Code එක ලබා ගැනීම
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක රටේ කෝඩ් එකත් එක්ක (0 අයින් කරලා)
+        const phoneNumber = "94774174158"; 
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -63,9 +60,6 @@ async function startBot() {
         const pushName = msg.pushName || 'යාළුවා'; 
         const textMessage = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
 
-        // 🔍 ටර්මිනල් එකේ JID එක බලාගැනීමට
-        console.log("📍 Chat JID එක: ", senderNumber);
-
         // 1. .check Command
         if (textMessage === '.check') {
             await sock.sendMessage(senderNumber, { react: { text: '🟢', key: msg.key } });
@@ -86,29 +80,17 @@ async function startBot() {
                              `   └ TikTok වීඩියෝ Download කරගන්න.\n\n` +
                              `🔹 *.insta [Instagram Link]*\n` +
                              `   └ Instagram Reels/Videos Download කරගන්න.\n\n` +
-                             `🔹 *.yt [YouTube Link හෝ වීඩියෝවේ නම]*\n` +
-                             `   └ වීඩියෝ Download කරන්න හෝ Search කරලා 10කින් තෝරන්න.\n\n` +
+                             `🔹 *.yt [YouTube Link]*\n` +
+                             `   └ YouTube වීඩියෝ Download කරගන්න.\n\n` +
                              `🔹 *.song [සින්දුවේ නම]*\n` +
-                             `   └ සින්දු Search කරලා MP3 විදිහට කෙළින්ම Download කරගන්න.\n\n` +
-                             `🔹 *.check*\n` +
-                             `   └ Bot Active ද කියලා පරීක්ෂා කරන්න.\n\n` +
-                             `------------------------------------\n` +
-                             `💡 *උදාහරණයක් ලෙස:* \n` +
-                             `.insta https://www.instagram.com/reel/...` +
-                             `\n\n*Created by Chalana Madhawa*`;
+                             `   └ සින්දු Search කරලා MP3 විදිහට ඩවුන්ලෝඩ් කරන්න.\n\n` +
+                             `------------------------------------\n*Created by Chalana Madhawa*`;
 
-            if (fs.existsSync('./menu.jpg')) {
-                await sock.sendMessage(senderNumber, { 
-                    image: { url: './menu.jpg' }, 
-                    caption: menuText 
-                }, { quoted: msg });
-            } else {
-                await sock.sendMessage(senderNumber, { text: menuText }, { quoted: msg });
-            }
+            await sock.sendMessage(senderNumber, { text: menuText }, { quoted: msg });
             return;
         }
 
-        // 3. Session Management (Search Results & Quality Selection)
+        // 3. Search Results Selection (.song / .yt Search)
         if (userSessions[senderNumber]) {
             const session = userSessions[senderNumber];
 
@@ -116,98 +98,18 @@ async function startBot() {
                 const choice = parseInt(textMessage);
                 if (choice >= 1 && choice <= session.results.length) {
                     const selectedItem = session.results[choice - 1];
+                    delete userSessions[senderNumber];
 
                     if (session.type === 'song') {
-                        delete userSessions[senderNumber];
-                        await sock.sendMessage(senderNumber, { react: { text: '⏳', key: msg.key } });
-                        await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
-
-                        const fileName = `song_${Date.now()}.mp3`;
-                        const command = `npx --yes yt-dlp -x --audio-format mp3 -o "${fileName}" "${selectedItem.url}"`;
-
-                        exec(command, async (error) => {
-                            if (error) {
-                                await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. සින්දුව හොයා ගන්න බැරි උනා 🥲` }, { quoted: msg });
-                                return;
-                            }
-                            try {
-                                await sock.sendMessage(senderNumber, { 
-                                    audio: { url: `./${fileName}` }, 
-                                    mimetype: 'audio/mp4',
-                                    caption: `🎵 *${selectedItem.title}*\n- Chalana Madhawa -`
-                                }, { quoted: msg });
-
-                                if (fs.existsSync(`./${fileName}`)) fs.unlinkSync(`./${fileName}`);
-                            } catch (err) {
-                                await sock.sendMessage(senderNumber, { text: 'සින්දුව යවද්දී අවුලක් වුණා බ්‍රෝ 🥲' });
-                            }
-                        });
-                        return;
+                        await downloadAndSendMedia(sock, senderNumber, msg, selectedItem.url, 'audio', pushName, selectedItem.title);
+                    } else if (session.type === 'yt') {
+                        await downloadAndSendMedia(sock, senderNumber, msg, selectedItem.url, 'video', pushName, selectedItem.title);
                     }
-
-                    if (session.type === 'yt') {
-                        userSessions[senderNumber] = {
-                            step: 'SELECT_QUALITY',
-                            url: selectedItem.url,
-                            title: selectedItem.title
-                        };
-                        await sendQualityPrompt(sock, senderNumber, msg, selectedItem.title, pushName);
-                        return;
-                    }
-
+                    return;
                 } else {
-                    await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, 1 ත් 10 ත් අතර අංකයක් දෙන්න! ❌` }, { quoted: msg });
+                    await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, නිවැරදි අංකයක් දෙන්න! ❌` }, { quoted: msg });
                     return;
                 }
-            }
-
-            else if (session.step === 'SELECT_QUALITY') {
-                const choice = textMessage;
-                let formatCmd = 'best[ext=mp4]/best';
-                let isAudio = false;
-
-                if (choice === '1') {
-                    formatCmd = 'best[ext=mp4]/best';
-                } else if (choice === '2') {
-                    formatCmd = 'worst[ext=mp4]/worst';
-                } else if (choice === '3') {
-                    formatCmd = 'bestaudio';
-                    isAudio = true;
-                } else {
-                    await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, 1, 2 හෝ 3 අංක වලින් එකක් තෝරන්න! ❌` }, { quoted: msg });
-                    return;
-                }
-
-                const targetUrl = session.url;
-                delete userSessions[senderNumber];
-
-                await sock.sendMessage(senderNumber, { react: { text: '⏳', key: msg.key } });
-                await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, ගොනුව සකස් වෙමින් පවතී... ⏳` }, { quoted: msg });
-
-                const ext = isAudio ? 'mp3' : 'mp4';
-                const fileName = `download_${Date.now()}.${ext}`;
-                const command = isAudio 
-                    ? `npx --yes yt-dlp -x --audio-format mp3 -o "${fileName}" "${targetUrl}"`
-                    : `npx --yes yt-dlp -f "${formatCmd}" -o "${fileName}" "${targetUrl}"`;
-
-                exec(command, async (error) => {
-                    if (error) {
-                        await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. ගොනුව ඩවුන්ලෝඩ් කරගන්න බැරි වුණා 🥲` }, { quoted: msg });
-                        return;
-                    }
-
-                    try {
-                        if (isAudio) {
-                            await sock.sendMessage(senderNumber, { audio: { url: `./${fileName}` }, mimetype: 'audio/mp4', caption: `🎵 Audio Downloaded!\n- Chalana Madhawa -` }, { quoted: msg });
-                        } else {
-                            await sock.sendMessage(senderNumber, { video: { url: `./${fileName}` }, caption: `ඔන්න ඔයාගේ වීඩියෝ එක ${pushName}! 🎬\n- Chalana Madhawa -` }, { quoted: msg });
-                        }
-                        if (fs.existsSync(`./${fileName}`)) fs.unlinkSync(`./${fileName}`);
-                    } catch (err) {
-                        await sock.sendMessage(senderNumber, { text: 'ෆයිල් එක යවද්දී අවුලක් වුණා බ්‍රෝ 🥲' });
-                    }
-                });
-                return;
             }
         }
 
@@ -219,36 +121,34 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { react: { text: '🎵', key: msg.key } });
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව සොයමින් පවතී... ⏳` }, { quoted: msg });
 
-            const searchCmd = `npx --yes yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
+            try {
+                const searchRes = await axios.get(`https://apis.davidcyriltech.my.id/youtube/search?query=${encodeURIComponent(query)}`);
+                const results = searchRes.data.results || searchRes.data.data || [];
 
-            exec(searchCmd, async (error, stdout) => {
-                if (error || !stdout.trim()) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. ඒ නමට අදාළ සින්දු හම්බුුණේ නැහැ 🥲` }, { quoted: msg });
+                if (!results.length) {
+                    await sock.sendMessage(senderNumber, { text: `සින්දු හම්බුුණේ නැහැ බ්‍රෝ 🥲` }, { quoted: msg });
                     return;
                 }
 
-                const lines = stdout.trim().split('\n');
-                const results = [];
                 let responseText = `🎵 *${pushName}, "${query}" සඳහා සොයාගත් සින්දු:* \n\n`;
+                const topResults = results.slice(0, 10);
 
-                lines.forEach((line, index) => {
-                    const [title, url] = line.split('|');
-                    if (title && url) {
-                        results.push({ title: title.trim(), url: url.trim() });
-                        responseText += `*${index + 1}.* ${title.trim()}\n\n`;
-                    }
+                topResults.forEach((item, index) => {
+                    responseText += `*${index + 1}.* ${item.title}\n\n`;
                 });
 
-                responseText += `------------------------------------\n👉 *ඔයාට ඕන සින්දුවේ අංකය (1 - ${results.length}) Reply කරන්න:*`;
+                responseText += `👉 *අංකය (1 - ${topResults.length}) Reply කරන්න:*`;
 
                 userSessions[senderNumber] = {
                     step: 'SELECT_SEARCH_RESULT',
-                    results: results,
+                    results: topResults,
                     type: 'song'
                 };
 
                 await sock.sendMessage(senderNumber, { text: responseText }, { quoted: msg });
-            });
+            } catch (err) {
+                await sock.sendMessage(senderNumber, { text: `සෙවුම් දෝෂයක් ඇති විය 🥲` }, { quoted: msg });
+            }
             return;
         }
 
@@ -256,19 +156,7 @@ async function startBot() {
         if (textMessage.startsWith('.tik ')) {
             const url = textMessage.split(' ')[1];
             if (!url) return;
-
-            await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
-            await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, TikTok වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
-            const fileName = `tiktok_${Date.now()}.mp4`;
-            
-            exec(`npx --yes yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
-                if (error) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. TikTok වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
-                    return;
-                }
-                await sock.sendMessage(senderNumber, { video: { url: `./${fileName}` }, caption: `TikTok Video Downloaded ${pushName}! 🎬\n- Chalana Madhawa -` }, { quoted: msg });
-                if (fs.existsSync(`./${fileName}`)) fs.unlinkSync(`./${fileName}`);
-            });
+            await downloadAndSendMedia(sock, senderNumber, msg, url, 'video', pushName, 'TikTok Video');
             return;
         }
 
@@ -276,19 +164,7 @@ async function startBot() {
         if (textMessage.startsWith('.insta ')) {
             const url = textMessage.split(' ')[1];
             if (!url) return;
-
-            await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
-            await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, Instagram වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
-            const fileName = `insta_${Date.now()}.mp4`;
-            
-            exec(`npx --yes yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
-                if (error) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. Instagram වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
-                    return;
-                }
-                await sock.sendMessage(senderNumber, { video: { url: `./${fileName}` }, caption: `Instagram Video Downloaded ${pushName}! 🎬\n- Chalana Madhawa -` }, { quoted: msg });
-                if (fs.existsSync(`./${fileName}`)) fs.unlinkSync(`./${fileName}`);
-            });
+            await downloadAndSendMedia(sock, senderNumber, msg, url, 'video', pushName, 'Instagram Video');
             return;
         }
 
@@ -296,10 +172,7 @@ async function startBot() {
         if (textMessage.startsWith('.fb ')) {
             const url = textMessage.split(' ')[1];
             if (!url) return;
-
-            await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
-            userSessions[senderNumber] = { step: 'SELECT_QUALITY', url: url };
-            await sendQualityPrompt(sock, senderNumber, msg, 'Facebook Video', pushName);
+            await downloadAndSendMedia(sock, senderNumber, msg, url, 'video', pushName, 'Facebook Video');
             return;
         }
 
@@ -308,61 +181,81 @@ async function startBot() {
             const query = textMessage.replace('.yt ', '').trim();
             if (!query) return;
 
-            await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
-
             if (query.startsWith('http://') || query.startsWith('https://')) {
-                userSessions[senderNumber] = { step: 'SELECT_QUALITY', url: query };
-                await sendQualityPrompt(sock, senderNumber, msg, 'YouTube Video', pushName);
+                await downloadAndSendMedia(sock, senderNumber, msg, query, 'video', pushName, 'YouTube Video');
                 return;
             }
 
+            await sock.sendMessage(senderNumber, { react: { text: '📥', key: msg.key } });
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, YouTube එකේ සොයමින් පවතී... ⏳` }, { quoted: msg });
 
-            const searchCmd = `npx --yes yt-dlp "ytsearch10:${query}" --flat-playlist --print "%(title)s|https://www.youtube.com/watch?v=%(id)s"`;
+            try {
+                const searchRes = await axios.get(`https://apis.davidcyriltech.my.id/youtube/search?query=${encodeURIComponent(query)}`);
+                const results = searchRes.data.results || searchRes.data.data || [];
 
-            exec(searchCmd, async (error, stdout) => {
-                if (error || !stdout.trim()) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. ඒ නමට අදාළ වීඩියෝ හම්බුුණේ නැහැ 🥲` }, { quoted: msg });
+                if (!results.length) {
+                    await sock.sendMessage(senderNumber, { text: `වීඩියෝ හම්බුුණේ නැහැ බ්‍රෝ 🥲` }, { quoted: msg });
                     return;
                 }
 
-                const lines = stdout.trim().split('\n');
-                const results = [];
                 let responseText = `🔎 *${pushName}, "${query}" සඳහා සොයාගත් වීඩියෝ:* \n\n`;
+                const topResults = results.slice(0, 10);
 
-                lines.forEach((line, index) => {
-                    const [title, url] = line.split('|');
-                    if (title && url) {
-                        results.push({ title: title.trim(), url: url.trim() });
-                        responseText += `*${index + 1}.* ${title.trim()}\n\n`;
-                    }
+                topResults.forEach((item, index) => {
+                    responseText += `*${index + 1}.* ${item.title}\n\n`;
                 });
 
-                responseText += `------------------------------------\n👉 *ඔයාට ඕන වීඩියෝ එකේ අංකය (1 - ${results.length}) Reply කරන්න:*`;
+                responseText += `👉 *අංකය (1 - ${topResults.length}) Reply කරන්න:*`;
 
                 userSessions[senderNumber] = {
                     step: 'SELECT_SEARCH_RESULT',
-                    results: results,
+                    results: topResults,
                     type: 'yt'
                 };
 
                 await sock.sendMessage(senderNumber, { text: responseText }, { quoted: msg });
-            });
+            } catch (err) {
+                await sock.sendMessage(senderNumber, { text: `සෙවුම් දෝෂයක් ඇති විය 🥲` }, { quoted: msg });
+            }
             return;
         }
     });
 }
 
-async function sendQualityPrompt(sock, senderNumber, msg, title, pushName) {
-    const text = `🎬 *${title}*\n\n` +
-                 `හායි ${pushName}, ඔයාට ඕනෙ quality එක මොකද්ද?\n\n` +
-                 `1. Best Quality (Standard HD - ඩවුන්ලෝඩ් වේගවත්)\n` +
-                 `2. Data Saving / SD Quality\n` +
-                 `3. MP3 Audio (සින්දුව විතරක් 🎵)\n\n` +
-                 `👉 *කරුණාකර අංකය (1, 2, හෝ 3) Reply කරන්න:*` +
-                 `\n\n- Chalana Madhawa -`;
+// 🌐 API හරහා ඩවුන්ලෝඩ් කර WhatsApp වෙත එවීම සඳහා වන ප්‍රධාන ෆੰක්ෂන් එක
+async function downloadAndSendMedia(sock, senderNumber, msg, targetUrl, type, pushName, title) {
+    await sock.sendMessage(senderNumber, { react: { text: '⏳', key: msg.key } });
+    await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, ගොනුව සකස් වෙමින් පවතී... ⏳` }, { quoted: msg });
 
-    await sock.sendMessage(senderNumber, { text: text }, { quoted: msg });
+    try {
+        let downloadApiUrl = `https://apis.davidcyriltech.my.id/download?url=${encodeURIComponent(targetUrl)}`;
+        const response = await axios.get(downloadApiUrl);
+        const data = response.data;
+
+        let mediaUrl = data.download_url || data.url || data.video || (data.result && data.result.url);
+
+        if (!mediaUrl) {
+            await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. ඩවුන්ලෝඩ් ලින්ක් එක ලබාගන්න බැරි වුණා 🥲` }, { quoted: msg });
+            return;
+        }
+
+        if (type === 'audio') {
+            await sock.sendMessage(senderNumber, { 
+                audio: { url: mediaUrl }, 
+                mimetype: 'audio/mp4',
+                caption: `🎵 *${title || 'Audio'}*\n- Chalana Madhawa -`
+            }, { quoted: msg });
+        } else {
+            await sock.sendMessage(senderNumber, { 
+                video: { url: mediaUrl }, 
+                caption: `🎬 *${title || 'Video'}*\n- Chalana Madhawa -` 
+            }, { quoted: msg });
+        }
+
+    } catch (err) {
+        console.log("Download Error:", err);
+        await sock.sendMessage(senderNumber, { text: `සමාවෙන්න ${pushName}, ෆයිල් එක ඩවුන්ලෝඩ් කරද්දී දෝෂයක් මතු වුණා 🥲` }, { quoted: msg });
+    }
 }
 
 startBot();
