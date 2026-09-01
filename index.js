@@ -123,7 +123,6 @@ async function startBot() {
                         await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
 
                         const fileName = `song_${Date.now()}.mp3`;
-                        // yt-dlp හරහා ඩිරෙක්ට් ඔඩියෝ බාගැනීම (ffmpeg නැතත් වැඩ කරයි)
                         const command = `npx yt-dlp -f "bestaudio" -o "${fileName}" "${selectedItem.url}"`;
 
                         exec(command, async (error) => {
@@ -168,7 +167,7 @@ async function startBot() {
                 let isAudio = false;
 
                 if (choice === '1') {
-                    formatCmd = 'best[ext=mp4]/best'; // Render එකට ασφαλයි, ffmpeg ඕන නැත
+                    formatCmd = 'best[ext=mp4]/best';
                 } else if (choice === '2') {
                     formatCmd = 'worst[ext=mp4]/worst';
                 } else if (choice === '3') {
