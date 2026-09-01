@@ -1,6 +1,5 @@
 const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
 const pino = require('pino');
@@ -23,20 +22,30 @@ async function startBot() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true, // QR කෝඩ් එක කෙළින්ම ටර්මිනල් එකේ පෙන්වීමට
+        printQRInTerminal: false, // QR අයින් කර Pairing Code එක පාවිච්චි කිරීමට
         logger: pino({ level: 'silent' })
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log('\n📱 ඔන්න QR කෝඩ් එක පැමිණ ඇත, වට්ස්ඇප් එකෙන් ස්කෑන් කරන්න:\n');
-            qrcode.generate(qr, { small: true });
-        }
+    // Pairing Code එක ලබා ගැනීම
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(phoneNumber);
+                console.log(`\n========================================`);
+                console.log(`🔑 ඔන්න ඔයාගේ WhatsApp Pairing Code එක: ${code}`);
+                console.log(`========================================\n`);
+            } catch (err) {
+                console.log("❌ Pairing Code එක ලබාගැනීමේදී දෝෂයක් ඇති විය:", err);
+            }
+        }, 5000);
+    }
 
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        
         if (connection === 'open') {
             console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය! (Owner: Chalana Madhawa)\n');
         } else if (connection === 'close') {
