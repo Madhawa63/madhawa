@@ -1,6 +1,5 @@
 const express = require('express');
-const { default: makeWASocket } = require('@whiskeysockets/baileys');
-const { MongoClient } = require('mongodb');
+const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
@@ -19,92 +18,17 @@ app.listen(PORT, () => {
 
 const userSessions = {};
 
-// MongoDB හරහා Baileys Auth State එක පාලනය කිරීම සඳහා Custom Helper එක
-function useMongoDBAuthState(collection) {
-    const state = {
-        creds: null,
-        keys: {
-            get: async (type, ids) => {
-                const data = {};
-                await Promise.all(
-                    ids.map(async (id) => {
-                        let value = await readData(`${type}-${id}`);
-                        if (type === 'app-state-sync-key' && value) {
-                            value = Buffer.from(value);
-                        }
-                        data[id] = value;
-                    })
-                );
-                return data;
-            },
-            set: async (data) => {
-                const tasks = [];
-                for (const category of Object.keys(data)) {
-                    for (const id of Object.keys(data[category])) {
-                        const value = data[category][id];
-                        tasks.push(writeData(value, `${category}-${id}`));
-                    }
-                }
-                await Promise.all(tasks);
-            }
-        }
-    };
-
-    const writeData = async (data, id) => {
-        const query = { _id: id };
-        await collection.replaceOne(query, { _id: id, data }, { upsert: true });
-    };
-
-    const readData = async (id) => {
-        try {
-            const document = await collection.findOne({ _id: id });
-            return document ? document.data : null;
-        } catch (error) {
-            return null;
-        }
-    };
-
-    const removeData = async (id) => {
-        try {
-            await collection.deleteOne({ _id: id });
-        } catch (error) {}
-    };
-
-    return {
-        state,
-        saveCreds: async () => {
-            return await writeData(state.creds, 'creds');
-        },
-        init: async () => {
-            const creds = await readData('creds');
-            state.creds = creds || (await import('@whiskeysockets/baileys')).initAuthCreds();
-        }
-    };
-}
-
 async function startBot() {
-    // 2. MongoDB කනෙක්ෂන් එක සකස් කිරීම
-    const mongoUrl = process.env.MONGODB_URL;
-    if (!mongoUrl) {
-        console.error("❌ MONGODB_URL Environment Variable එක සෙට් කර නැත!");
-        return;
-    }
-
-    const client = new MongoClient(mongoUrl);
-    await client.connect();
-    const db = client.db('whatsapp_bot'); // ඩේටාබෙස් නම
-    
-    // MongoDB හරහා Auth State ලබා ගැනීම
-    const auth = useMongoDBAuthState(db.collection('auth_session'));
-    await auth.init();
+    // 2. MultiFileAuthState හරහා ලෝකල් ෆෝල්ඩර් එකක (auth_info_baileys) සෙෂන් සේව් වීම
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
-        auth: auth.state,
+        auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' })
     });
 
-    sock.ev.on('creds.update', auth.saveCreds);
+    sock.ev.on('creds.update', saveCreds);
 
     // Pairing Code එක ලබා ගැනීම
     if (!sock.authState.creds.registered) {
