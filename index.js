@@ -123,7 +123,8 @@ async function startBot() {
                         await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, සින්දුව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
 
                         const fileName = `song_${Date.now()}.mp3`;
-                        const command = `npx yt-dlp -x --audio-format mp3 -o "${fileName}" "${selectedItem.url}"`;
+                        // yt-dlp හරහා ඩිරෙක්ට් ඔඩියෝ බාගැනීම (ffmpeg නැතත් වැඩ කරයි)
+                        const command = `npx yt-dlp -f "bestaudio" -o "${fileName}" "${selectedItem.url}"`;
 
                         exec(command, async (error) => {
                             if (error) {
@@ -163,15 +164,15 @@ async function startBot() {
 
             else if (session.step === 'SELECT_QUALITY') {
                 const choice = textMessage;
-                let formatCmd = 'best';
+                let formatCmd = 'best[ext=mp4]/best';
                 let isAudio = false;
 
                 if (choice === '1') {
-                    formatCmd = 'bestvideo[height<=720]+bestaudio/best';
+                    formatCmd = 'best[ext=mp4]/best'; // Render එකට ασφαλයි, ffmpeg ඕන නැත
                 } else if (choice === '2') {
-                    formatCmd = 'worstvideo+worstaudio/worst';
+                    formatCmd = 'worst[ext=mp4]/worst';
                 } else if (choice === '3') {
-                    formatCmd = 'bestaudio/best';
+                    formatCmd = 'bestaudio';
                     isAudio = true;
                 } else {
                     await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, 1, 2 හෝ 3 අංක වලින් එකක් තෝරන්න! ❌` }, { quoted: msg });
@@ -186,8 +187,7 @@ async function startBot() {
 
                 const ext = isAudio ? 'mp3' : 'mp4';
                 const fileName = `download_${Date.now()}.${ext}`;
-                const cmdOptions = isAudio ? `-x --audio-format mp3 -o "${fileName}"` : `-f "${formatCmd}" -o "${fileName}"`;
-                const command = `npx yt-dlp ${cmdOptions} "${targetUrl}"`;
+                const command = `npx yt-dlp -f "${formatCmd}" -o "${fileName}" "${targetUrl}"`;
 
                 exec(command, async (error) => {
                     if (error) {
@@ -260,7 +260,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, TikTok වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
             const fileName = `tiktok_${Date.now()}.mp4`;
             
-            exec(`npx yt-dlp -f "best" -o "${fileName}" "${url}"`, async (error) => {
+            exec(`npx yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
                     await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. TikTok වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
@@ -280,7 +280,7 @@ async function startBot() {
             await sock.sendMessage(senderNumber, { text: `පොඩ්ඩක් ඉන්න ${pushName}, Instagram වීඩියෝව බාගත වෙමින් පවතී... ⏳` }, { quoted: msg });
             const fileName = `insta_${Date.now()}.mp4`;
             
-            exec(`npx yt-dlp -f "best" -o "${fileName}" "${url}"`, async (error) => {
+            exec(`npx yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
                     await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. Instagram වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
@@ -355,8 +355,8 @@ async function startBot() {
 async function sendQualityPrompt(sock, senderNumber, msg, title, pushName) {
     const text = `🎬 *${title}*\n\n` +
                  `හායි ${pushName}, ඔයාට ඕනෙ quality එක මොකද්ද?\n\n` +
-                 `1. HD Quality (720p/1080p)\n` +
-                 `2. Normal/SD Quality (360p - Data ඉතුරුයි)\n` +
+                 `1. Best Quality (Standard HD - ඩවුන්ලෝඩ් වේගවත්)\n` +
+                 `2. Data Saving / SD Quality\n` +
                  `3. MP3 Audio (සින්දුව විතරක් 🎵)\n\n` +
                  `👉 *කරුණාකර අංකය (1, 2, හෝ 3) Reply කරන්න:*` +
                  `\n\n- Chalana Madhawa -`;
