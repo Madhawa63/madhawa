@@ -1,11 +1,71 @@
 const { default: makeWASocket } = require('@whiskeysockets/baileys');
-const { useMongoDBAuthState } = require('mongo-authState'); // MongoDB සෙෂන් හෑන්ඩ් කිරීමට
 const { MongoClient } = require('mongodb');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
 
 const userSessions = {};
+
+// MongoDB හරහා Baileys Auth State එක පාලනය කිරීම සඳහා Custom Helper එක
+function useMongoDBAuthState(collection) {
+    const writeData = async (data, id) => {
+        const query = { _id: id };
+        await collection.replaceOne(query, { _id: id, data }, { upsert: true });
+    };
+
+    const readData = async (id) => {
+        try {
+            const document = await collection.findOne({ _id: id });
+            return document ? document.data : null;
+        } catch (error) {
+            return null;
+        }
+    };
+
+    const removeData = async (id) => {
+        try {
+            await collection.deleteOne({ _id: id });
+        } catch (error) {}
+    };
+
+    return {
+        state: {
+            creds: null,
+            keys: {
+                get: async (type, ids) => {
+                    const data = {};
+                    await Promise.all(
+                        ids.map(async (id) => {
+                            let value = await readData(`${type}-${id}`);
+                            if (type === 'app-state-sync-key' && value) {
+                                value = Buffer.from(value);
+                            }
+                            data[id] = value;
+                        })
+                    );
+                    return data;
+                },
+                set: async (data) => {
+                    const tasks = [];
+                    for (const category of Object.keys(data)) {
+                        for (const id of Object.keys(data[category])) {
+                            const value = data[category][id];
+                            tasks.push(writeData(value, `${category}-${id}`));
+                        }
+                    }
+                    await Promise.all(tasks);
+                }
+            }
+        },
+        saveCreds: async () => {
+            return await writeData(state.creds, 'creds');
+        },
+        init: async () => {
+            const creds = await readData('creds');
+            state.creds = creds || (await import('@whiskeysockets/baileys')).initAuthCreds();
+        }
+    };
+}
 
 async function startBot() {
     // 1. MongoDB කනෙක්ෂන් එක සකස් කිරීම
@@ -19,20 +79,21 @@ async function startBot() {
     await client.connect();
     const db = client.db('whatsapp_bot'); // ඩේටාබෙස් නම
     
-    // MongoDB හරහා Auth State ලබා ගැනීම (Render වැනි සර්වර් වලට ඩිලීට් නොවී තබා ගැනීමට)
-    const { state, saveCreds } = await useMongoDBAuthState(db.collection('auth_session'));
+    // MongoDB හරහා Auth State ලබා ගැනීම
+    const auth = useMongoDBAuthState(db.collection('auth_session'));
+    await auth.init();
 
     const sock = makeWASocket({
-        auth: state,
+        auth: auth.state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' })
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', auth.saveCreds);
 
     // Pairing Code එක ලබා ගැනීම
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක රටේ කෝඩ් එකත් එක්ක (0 අයින් කරලා) දැම්මා
+        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක රටේ කෝඩ් එකත් එක්ක (0 අයින් කරලා)
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
