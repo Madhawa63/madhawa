@@ -1,4 +1,6 @@
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket } = require('@whiskeysockets/baileys');
+const { useMongoDBAuthState } = require('mongo-authState'); // MongoDB සෙෂන් හෑන්ඩ් කිරීමට
+const { MongoClient } = require('mongodb');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
@@ -6,8 +8,20 @@ const pino = require('pino');
 const userSessions = {};
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    // 1. MongoDB කනෙක්ෂන් එක සකස් කිරීම
+    const mongoUrl = process.env.MONGODB_URL;
+    if (!mongoUrl) {
+        console.error("❌ MONGODB_URL Environment Variable එක සෙට් කර නැත!");
+        return;
+    }
+
+    const client = new MongoClient(mongoUrl);
+    await client.connect();
+    const db = client.db('whatsapp_bot'); // ඩේටාබෙස් නම
     
+    // MongoDB හරහා Auth State ලබා ගැනීම (Render වැනි සර්වර් වලට ඩිලීට් නොවී තබා ගැනීමට)
+    const { state, saveCreds } = await useMongoDBAuthState(db.collection('auth_session'));
+
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
