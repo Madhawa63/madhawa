@@ -1,8 +1,21 @@
+const express = require('express');
 const { default: makeWASocket } = require('@whiskeysockets/baileys');
 const { MongoClient } = require('mongodb');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
+
+// 1. Render එකේ Port Error එක නැති කර ගැනීමට Express සර්වර් එක සකස් කිරීම
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Bot is Running Successfully! 🟢');
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is listening on port ${PORT}`);
+});
 
 const userSessions = {};
 
@@ -70,7 +83,7 @@ function useMongoDBAuthState(collection) {
 }
 
 async function startBot() {
-    // 1. MongoDB කනෙක්ෂන් එක සකස් කිරීම
+    // 2. MongoDB කනෙක්ෂන් එක සකස් කිරීම
     const mongoUrl = process.env.MONGODB_URL;
     if (!mongoUrl) {
         console.error("❌ MONGODB_URL Environment Variable එක සෙට් කර නැත!");
