@@ -18,7 +18,7 @@ app.listen(PORT, () => {
 });
 
 // 2. MongoDB කනෙක්ෂන් එක සකස් කිරීම
-const mongoUrl = process.env.MONGO_URI || "mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=true&w=majority";
+const mongoUrl = process.env.MONGO_URI || "mongodb+srv://chalanamadhawa63_db_user:Chalana645@cluster0.vq5jidq.mongodb.net/?appName=Cluster0";
 const client = new MongoClient(mongoUrl);
 
 async function connectDB() {
