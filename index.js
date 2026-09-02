@@ -1,8 +1,9 @@
 const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { exec } = require('child_process');
 const fs = require('fs');
 const pino = require('pino');
+const { MongoClient } = require('mongodb');
 
 // 1. Render එකේ Port Error එක නැති කර ගැනීමට Express සර්වර් එක සකස් කිරීම
 const app = express();
@@ -16,10 +17,25 @@ app.listen(PORT, () => {
     console.log(`Server is listening on port ${PORT}`);
 });
 
+// 2. MongoDB කනෙක්ෂන් එක සකස් කිරීම
+const mongoUrl = process.env.MONGO_URI || "mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=true&w=majority";
+const client = new MongoClient(mongoUrl);
+
+async function connectDB() {
+    try {
+        await client.connect();
+        console.log("🟢 MongoDB එකට සාර්ථකව සම්බන්ධ විය!");
+    } catch (err) {
+        console.error("🔴 MongoDB සම්බන්ධ වීමේ දෝෂයක්:", err);
+    }
+}
+
+connectDB();
+
 const userSessions = {};
 
 async function startBot() {
-    // 2. MultiFileAuthState හරහා ලෝකල් ෆෝල්ඩර් එකක (auth_info_baileys) සෙෂන් සේව් වීම
+    // 3. MultiFileAuthState හරහා ලෝකල් ෆෝල්ඩර් එකක (auth_info_baileys) සෙෂන් සේව් වීම
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
@@ -36,22 +52,28 @@ async function startBot() {
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n========================================`);
                 console.log(`🔑 ඔන්න ඔයාගේ WhatsApp Pairing Code එක: ${code}`);
                 console.log(`========================================\n`);
             } catch (err) {
                 console.log("❌ Pairing Code එක ලබාගැනීමේදී දෝෂයක් ඇති විය:", err);
             }
-        }, 4000);
+        }, 5000);
     }
 
     sock.ev.on('connection.update', (update) => {
-        const { connection } = update;
+        const { connection, lastDisconnect } = update;
         if (connection === 'open') {
             console.log('\n✅ WhatsApp Bot එක සාර්ථකව Connect විය! (Owner: Chalana Madhawa)\n');
         } else if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
             console.log('\n❌ කනෙක්ෂන් එක විසන්ධි වුණා. නැවත කනෙක්ට් වෙමින් පවතී...\n');
-            startBot(); 
+            if (shouldReconnect) {
+                startBot();
+            } else {
+                console.log('⚠️ ලොග්আউট වී ඇත. auth_info_baileys ෆෝල්ඩර් එක මකා නැවත ලොග් වන්න.');
+            }
         }
     });
     
@@ -62,9 +84,6 @@ async function startBot() {
         const senderNumber = msg.key.remoteJid;
         const pushName = msg.pushName || 'යාළුවා'; 
         const textMessage = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
-
-        // 🔍 ටර්මිනල් එකේ JID එක බලාගැනීමට
-        console.log("📍 Chat JID එක: ", senderNumber);
 
         // 1. .check Command
         if (textMessage === '.check') {
@@ -86,16 +105,13 @@ async function startBot() {
                              `   └ TikTok වීඩියෝ Download කරගන්න.\n\n` +
                              `🔹 *.insta [Instagram Link]*\n` +
                              `   └ Instagram Reels/Videos Download කරගන්න.\n\n` +
-                             `🔹 *.yt [YouTube Link හෝ වීඩියෝවේ නම]*\n` +
-                             `   └ වීඩියෝ Download කරන්න හෝ Search කරලා 10කින් තෝරන්න.\n\n` +
+                             `🔹 *.yt [YouTube Link හෝ නම]*\n` +
+                             `   └ වීඩියෝ Download කරන්න හෝ Search කරන්න.\n\n` +
                              `🔹 *.song [සින්දුවේ නම]*\n` +
-                             `   └ සින්දු Search කරලා MP3 විදිහට කෙළින්ම Download කරගන්න.\n\n` +
+                             `   └ සින්දු Search කරලා MP3 Download කරගන්න.\n\n` +
                              `🔹 *.check*\n` +
-                             `   └ Bot Active ද කියලා පරීක්ෂා කරන්න.\n\n` +
-                             `------------------------------------\n` +
-                             `💡 *උදාහරණයක් ලෙස:* \n` +
-                             `.insta https://www.instagram.com/reel/...` +
-                             `\n\n*Created by Chalana Madhawa*`;
+                             `   └ Bot Active ද බලන්න.\n\n` +
+                             `------------------------------------\n*Created by Chalana Madhawa*`;
 
             if (fs.existsSync('./menu.jpg')) {
                 await sock.sendMessage(senderNumber, { 
@@ -156,7 +172,7 @@ async function startBot() {
                     }
 
                 } else {
-                    await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, 1 ත් 10 ත් අතර අංකයක් දෙන්න! ❌` }, { quoted: msg });
+                    await sock.sendMessage(senderNumber, { text: `කරුණාකර ${pushName}, නිවැරදි අංකයක් දෙන්න! ❌` }, { quoted: msg });
                     return;
                 }
             }
@@ -239,7 +255,7 @@ async function startBot() {
                     }
                 });
 
-                responseText += `------------------------------------\n👉 *ඔයාට ඕන සින්දුවේ අංකය (1 - ${results.length}) Reply කරන්න:*`;
+                responseText += `------------------------------------\n👉 *අංකය (1 - ${results.length}) Reply කරන්න:*`;
 
                 userSessions[senderNumber] = {
                     step: 'SELECT_SEARCH_RESULT',
@@ -263,7 +279,7 @@ async function startBot() {
             
             exec(`npx --yes yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. TikTok වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
+                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. TikTok ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
                 }
                 await sock.sendMessage(senderNumber, { video: { url: `./${fileName}` }, caption: `TikTok Video Downloaded ${pushName}! 🎬\n- Chalana Madhawa -` }, { quoted: msg });
@@ -283,7 +299,7 @@ async function startBot() {
             
             exec(`npx --yes yt-dlp -f "best[ext=mp4]/best" -o "${fileName}" "${url}"`, async (error) => {
                 if (error) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. Instagram වීඩියෝ එක ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
+                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. Instagram ඩවුන්ලෝඩ් කරන්න බැරි වුණා 🥲` }, { quoted: msg });
                     return;
                 }
                 await sock.sendMessage(senderNumber, { video: { url: `./${fileName}` }, caption: `Instagram Video Downloaded ${pushName}! 🎬\n- Chalana Madhawa -` }, { quoted: msg });
@@ -322,7 +338,7 @@ async function startBot() {
 
             exec(searchCmd, async (error, stdout) => {
                 if (error || !stdout.trim()) {
-                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. ඒ නමට අදාළ වීඩියෝ හම්බුුණේ නැහැ 🥲` }, { quoted: msg });
+                    await sock.sendMessage(senderNumber, { text: `අම්මට සිරි ${pushName}.. වීඩියෝ හම්බුුණේ නැහැ 🥲` }, { quoted: msg });
                     return;
                 }
 
@@ -338,7 +354,7 @@ async function startBot() {
                     }
                 });
 
-                responseText += `------------------------------------\n👉 *ඔයාට ඕන වීඩියෝ එකේ අංකය (1 - ${results.length}) Reply කරන්න:*`;
+                responseText += `------------------------------------\n👉 *අංකය (1 - ${results.length}) Reply කරන්න:*`;
 
                 userSessions[senderNumber] = {
                     step: 'SELECT_SEARCH_RESULT',
@@ -356,10 +372,10 @@ async function startBot() {
 async function sendQualityPrompt(sock, senderNumber, msg, title, pushName) {
     const text = `🎬 *${title}*\n\n` +
                  `හායි ${pushName}, ඔයාට ඕනෙ quality එක මොකද්ද?\n\n` +
-                 `1. Best Quality (Standard HD - ඩවුන්ලෝඩ් වේගවත්)\n` +
+                 `1. Best Quality (Standard HD)\n` +
                  `2. Data Saving / SD Quality\n` +
                  `3. MP3 Audio (සින්දුව විතරක් 🎵)\n\n` +
-                 `👉 *කරුණාකර අංකය (1, 2, හෝ 3) Reply කරන්න:*` +
+                 `👉 *අංකය (1, 2, හෝ 3) Reply කරන්න:*` +
                  `\n\n- Chalana Madhawa -`;
 
     await sock.sendMessage(senderNumber, { text: text }, { quoted: msg });
