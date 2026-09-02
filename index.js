@@ -42,14 +42,14 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['Ubuntu', 'Chrome', '20.0.04'] // 👈 මෙන්න මේකයි අපි අලුතින් ඇඩ් කළේ
+        browser: ['Ubuntu', 'Chrome', '20.0.04'] // 👈 Pairing Code එක වැඩ කිරීමට අත්‍යවශ්‍යයි
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     // Pairing Code එක ලබා ගැනීම
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක රටේ කෝඩ් එකත් එක්ක (0 අයින් කරලා)
+        const phoneNumber = "94774174158"; // ඔයාගේ නම්බර් එක (0 අයින් කරලා)
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -73,7 +73,7 @@ async function startBot() {
             if (shouldReconnect) {
                 startBot();
             } else {
-                console.log('⚠️ ලොග්අවුට් වී ඇත. auth_info_baileys ෆෝල්ඩර් එක මකා නැවත ලොග් වන්න.');
+                console.log('⚠️ ලොග්අවුට් වී ඇත.');
             }
         }
     });
@@ -376,6 +376,11 @@ async function sendQualityPrompt(sock, senderNumber, msg, title, pushName) {
     const qualityText = `🎬 *${title}*\n\n` +
                         `පහතින් අවශ්‍ය Quality එක තෝරන්න ${pushName}:\n\n` +
                         `*1.* 🎥 Best Video (High Quality)\n` +
-                        `*2.*I would be happy to send the full code over! 
+                        `*2.* 🎬 Low Video (Fast Download)\n` +
+                        `*3.* 🎵 Audio Only (MP3 Song)\n\n` +
+                        `------------------------------------\n👉 *අංකය (1, 2 හෝ 3) Reply කරන්න:*`;
 
-To make sure I generate the exact files you need, could you clarify which project you are looking for? Are we working on the HTML, CSS, and Dexie.js code for your HNDA student database and birthday card generator, or is this for a different project?
+    await sock.sendMessage(senderNumber, { text: qualityText }, { quoted: msg });
+}
+
+startBot();
